@@ -6,13 +6,23 @@ Wants=network-online.target
 [Service]
 Type=simple
 User=YOUR_USER
-Environment=JMP_JID=you@jabber.fr
-Environment=JMP_PASSWORD=your-xmpp-password
-Environment=JMP_HOOK_URL=http://127.0.0.1:18789/hooks/sms
-Environment=JMP_HOOK_TOKEN=your-openclaw-hooks-token
+EnvironmentFile=/etc/jmp-bridge/secrets.env
+Environment=JMP_ALLOWED_SENDERS=+15125551234,+14155550123
+Environment=JMP_REQUIRE_COMMAND_PREFIX=!bot
+Environment=JMP_INBOUND_PER_MIN=30
+Environment=JMP_OUTBOUND_PER_MIN=30
+Environment=JMP_OUTBOUND_PER_DAY=300
 ExecStart=/usr/bin/python3 /path/to/jmp_bridge.py
 Restart=always
 RestartSec=10
+UMask=0077
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=%h/.openclaw/.jmp-inbox %h/.openclaw/.jmp-outbox %h/.openclaw/.jmp-bridge.log
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+SystemCallFilter=@system-service
 
 [Install]
 WantedBy=multi-user.target

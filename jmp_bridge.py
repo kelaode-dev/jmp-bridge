@@ -18,7 +18,7 @@ from urllib.error import URLError
 import slixmpp
 
 # Config
-JID = os.environ.get('JMP_JID', 'kelaode@jabber.fr')
+JID = os.environ.get('JMP_JID', '')
 PASSWORD = os.environ.get('JMP_PASSWORD', '')
 INBOX_DIR = Path(os.environ.get('JMP_INBOX', os.path.expanduser('~/.openclaw/.jmp-inbox')))
 OUTBOX_DIR = Path(os.environ.get('JMP_OUTBOX', os.path.expanduser('~/.openclaw/.jmp-outbox')))

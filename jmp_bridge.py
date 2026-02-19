@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """
 JMP.chat XMPP-to-file bridge for OpenClaw.
-Maintains a persistent XMPP connection and logs incoming SMS to a file
-that OpenClaw can monitor.
+Maintains a persistent XMPP connection, logs incoming SMS to files,
+and fires OpenClaw webhooks on new messages.
 """
 
 import asyncio
@@ -12,6 +12,8 @@ import signal
 import sys
 import time
 from pathlib import Path
+from urllib.request import Request, urlopen
+from urllib.error import URLError
 
 import slixmpp
 
@@ -21,6 +23,10 @@ PASSWORD = os.environ.get('JMP_PASSWORD', '')
 INBOX_DIR = Path(os.environ.get('JMP_INBOX', os.path.expanduser('~/.openclaw/.jmp-inbox')))
 OUTBOX_DIR = Path(os.environ.get('JMP_OUTBOX', os.path.expanduser('~/.openclaw/.jmp-outbox')))
 LOG_FILE = Path(os.environ.get('JMP_LOG', os.path.expanduser('~/.openclaw/.jmp-bridge.log')))
+
+# OpenClaw hook config
+HOOK_URL = os.environ.get('JMP_HOOK_URL', '')  # e.g. http://127.0.0.1:18789/hooks/sms
+HOOK_TOKEN = os.environ.get('JMP_HOOK_TOKEN', '')
 
 # Ensure dirs exist
 INBOX_DIR.mkdir(parents=True, exist_ok=True)
@@ -32,6 +38,30 @@ def log(msg):
     print(line, flush=True)
     with open(LOG_FILE, 'a') as f:
         f.write(line + '\n')
+
+
+def fire_hook(phone, body, timestamp):
+    """POST incoming SMS to OpenClaw hook endpoint."""
+    if not HOOK_URL:
+        return
+    payload = json.dumps({
+        'from': phone,
+        'body': body,
+        'timestamp': timestamp,
+    }).encode()
+    headers = {
+        'Content-Type': 'application/json',
+    }
+    if HOOK_TOKEN:
+        headers['Authorization'] = f'Bearer {HOOK_TOKEN}'
+    try:
+        req = Request(HOOK_URL, data=payload, headers=headers, method='POST')
+        resp = urlopen(req, timeout=10)
+        log(f"[HOOK] Fired for {phone} -> {resp.status}")
+    except URLError as e:
+        log(f"[HOOK ERROR] {e}")
+    except Exception as e:
+        log(f"[HOOK ERROR] {e}")
 
 
 class JMPBridge(slixmpp.ClientXMPP):
@@ -48,7 +78,7 @@ class JMPBridge(slixmpp.ClientXMPP):
         self.send_presence()
         self.send_presence(pto='cheogram.com', ptype='subscribed')
         log(f"Connected as {self.boundjid.full}")
-        
+
         # Start outbox watcher
         asyncio.ensure_future(self.watch_outbox())
 
@@ -59,37 +89,40 @@ class JMPBridge(slixmpp.ClientXMPP):
     def on_message(self, msg):
         if not msg['body']:
             return
-        
+
         frm = str(msg['from']).split('/')[0]
         body = msg['body']
-        
+
         # Skip server welcome messages
         if frm == 'jabber.fr':
             return
-        
+
         # Skip cheogram bot admin messages (not SMS)
         if frm == 'cheogram.com':
             log(f"[ADMIN] cheogram.com: {body[:100]}")
             return
-        
+
         # This is an incoming SMS!
         phone = frm.replace('@cheogram.com', '')
         ts = int(time.time())
-        
+
         msg_data = {
             'from': phone,
             'body': body,
             'timestamp': ts,
             'jid': frm,
         }
-        
+
         # Write to inbox
         filename = f"{ts}-{phone.replace('+', '')}.json"
         inbox_path = INBOX_DIR / filename
         with open(inbox_path, 'w') as f:
             json.dump(msg_data, f)
-        
+
         log(f"[SMS IN] {phone}: {body[:100]}")
+
+        # Fire OpenClaw hook (non-blocking)
+        asyncio.get_event_loop().run_in_executor(None, fire_hook, phone, body, ts)
 
     def on_disconnect(self, event):
         if self.running:
@@ -118,7 +151,6 @@ class JMPBridge(slixmpp.ClientXMPP):
                             f.unlink()
                         except Exception as e:
                             log(f"[ERROR] Failed to send {f.name}: {e}")
-                            # Move to .failed
                             f.rename(f.with_suffix('.failed'))
             except Exception as e:
                 pass
@@ -133,21 +165,26 @@ async def main():
     if not PASSWORD:
         print("ERROR: JMP_PASSWORD not set", file=sys.stderr)
         sys.exit(1)
-    
+
     log("Starting JMP bridge...")
+    if HOOK_URL:
+        log(f"Hook configured: {HOOK_URL}")
+    else:
+        log("No hook URL configured (file-only mode)")
+
     bot = JMPBridge()
-    
+
     # Handle signals
     loop = asyncio.get_event_loop()
     for sig in (signal.SIGTERM, signal.SIGINT):
         loop.add_signal_handler(sig, bot.stop)
-    
+
     bot.connect()
-    
+
     # Run forever
     while bot.running:
         await asyncio.sleep(1)
-    
+
     log("JMP bridge stopped.")
 
 

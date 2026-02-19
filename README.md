@@ -163,6 +163,26 @@ The bridge is designed to be consumed by OpenClaw agents. A few integration patt
 - **The outbox pattern** is simple but effective — any process can queue an SMS by writing a JSON file
 - **slixmpp** (async) is the right choice over sleekxmpp (deprecated) for Python 3.8+
 
+## Security Hardening (new)
+
+The bridge now supports baseline hardening controls via environment variables:
+
+- `JMP_ALLOWED_SENDERS` — comma-separated E.164 allowlist (e.g. `+15125551234,+14155550123`)
+- `JMP_REQUIRE_COMMAND_PREFIX` — optional prefix required on inbound messages (e.g. `!bot`)
+- `JMP_MAX_SMS_LENGTH` — cap inbound/outbound body length (default `1000`)
+- `JMP_INBOUND_PER_MIN` — inbound per-sender rate limit (default `30`)
+- `JMP_OUTBOUND_PER_MIN` — outbound global/minute cap (default `30`)
+- `JMP_OUTBOUND_PER_DAY` — outbound global/day cap (default `300`)
+
+Additional behavior:
+
+- Inbox/outbox directories are set to `0700`
+- Written message/log files are set to `0600`
+- Logs redact most of each phone number (`***1234`)
+- Outbox scanner now logs exceptions (no silent failure loop)
+
+> Recommended: always set `JMP_ALLOWED_SENDERS` in production.
+
 ## TODO
 
 - [ ] systemd service template
@@ -170,7 +190,7 @@ The bridge is designed to be consumed by OpenClaw agents. A few integration patt
 - [ ] MMS/image support
 - [ ] Delivery receipts
 - [ ] Signal registration guide (JMP numbers may work for Signal)
-- [ ] Rate limiting / abuse prevention
+- [ ] HMAC hook signing + replay protection
 - [ ] Skill packaging for OpenClaw
 
 ## License
